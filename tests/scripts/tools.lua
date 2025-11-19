@@ -1,4 +1,4 @@
--- Copyright (C) 2019-2020  Igara Studio S.A.
+-- Copyright (C) 2019-2022  Igara Studio S.A.
 --
 -- This file is released under the terms of the MIT license.
 -- Read LICENSE.txt for more information.
@@ -392,7 +392,7 @@ end
 ----------------------------------------------------------------------
 
 function drawing_with_symmetry(imageColorMode, colorInImage,
-			       brushColorMode, colorInBrush, palette)
+                               brushColorMode, colorInBrush, palette)
   print("drawing_with_symmetry", imageColorMode, brushColorMode)
   local s = Sprite(8, 3, imageColorMode)
   local c = colorInImage
@@ -412,8 +412,8 @@ function drawing_with_symmetry(imageColorMode, colorInImage,
   expect_eq(cel.bounds, Rectangle(0, 0, 8, 3))
   expect_img(cel.image,
              { 0, 0, 0, 0, 0, 0, 0, 0,
-	       0, 0, 0, 0, 0, 0, 0, 0,
-	       0, 0, 0, 0, 0, 0, 0, 0 })
+               0, 0, 0, 0, 0, 0, 0, 0,
+               0, 0, 0, 0, 0, 0, 0, 0 })
 
   local b = Brush { size=1 }
   app.fgColor = c
@@ -457,7 +457,7 @@ function drawing_with_symmetry(imageColorMode, colorInImage,
   expect_eq(cel.bounds, Rectangle(0, 0, 8, 3))
   expect_img(cel.image,
              { 0, c, 0, 0, 0, 0, c, 0,
-	       c, c, c, 0, 0, c, c, c,
+               c, c, c, 0, 0, c, c, c,
                0, c, 0, 0, 0, 0, c, 0 })
   app.undo()
 
@@ -467,7 +467,7 @@ function drawing_with_symmetry(imageColorMode, colorInImage,
   expect_eq(cel.bounds, Rectangle(1, 0, 6, 3))
   expect_img(cel.image,
              { 0, c, 0, 0, c, 0,
-	       c, c, c, c, c, c,
+               c, c, c, c, c, c,
                0, c, 0, 0, c, 0 })
   app.undo()
 
@@ -521,7 +521,154 @@ end
 
 do
   drawing_with_symmetry(ColorMode.RGB, rgba(255, 0, 0),
-			ColorMode.RGB, rgba(255, 0, 0))
+                        ColorMode.RGB, rgba(255, 0, 0))
+end
+
+----------------------------------------------------------------------
+-- diagonal and 8-quadrant symmetry tests
+----------------------------------------------------------------------
+do
+  local s = Sprite(8, 8, ColorMode.INDEXED)
+  local c = 1
+  cel = s.cels[1]
+  expect_eq(cel.bounds, Rectangle(0, 0, 8, 8))
+  expect_img(cel.image,
+             { 0, 0, 0, 0, 0, 0, 0, 0,
+               0, 0, 0, 0, 0, 0, 0, 0,
+               0, 0, 0, 0, 0, 0, 0, 0,
+               0, 0, 0, 0, 0, 0, 0, 0,
+
+               0, 0, 0, 0, 0, 0, 0, 0,
+               0, 0, 0, 0, 0, 0, 0, 0,
+               0, 0, 0, 0, 0, 0, 0, 0,
+               0, 0, 0, 0, 0, 0, 0, 0 })
+
+  -- Enable symmetry
+  local pref = app.preferences
+  local docPref = pref.document(s)
+  pref.symmetry_mode.enabled = true
+  docPref.symmetry.mode   = 4 -- RIGHT_DIAG = 4,
+  docPref.symmetry.x_axis = 4
+  local b = Brush{ type=BrushType.LINE, size=3, angle=45}
+  app.fgColor = c
+  app.useTool{ tool=pencil, brush=b, points={ Point(2, 1) } }
+  expect_eq(cel.bounds, Rectangle(1, 0, 7, 7))
+  expect_img(cel.image,
+             { 0, 0, c, 0, 0, 0, 0,
+               0, c, 0, 0, 0, 0, 0,
+               c, 0, 0, 0, 0, 0, 0,
+               0, 0, 0, 0, 0, 0, 0,
+
+               0, 0, 0, 0, 0, 0, c,
+               0, 0, 0, 0, 0, c, 0,
+               0, 0, 0, 0, c, 0, 0 })
+  app.undo()
+  docPref.symmetry.mode = 8 -- LEFT_DIAG = 8,
+  app.useTool{ tool=pencil, brush=b, points={ Point(6, 2) } }
+  expect_eq(cel.bounds, Rectangle(1, 1, 7, 7))
+  expect_img(cel.image,
+             { 0, 0, 0, 0, 0, 0, c,
+               0, 0, 0, 0, 0, c, 0,
+               0, 0, 0, 0, c, 0, 0,
+               0, 0, 0, 0, 0, 0, 0,
+
+               0, 0, c, 0, 0, 0, 0,
+               0, c, 0, 0, 0, 0, 0,
+               c, 0, 0, 0, 0, 0, 0 })
+  app.undo()
+
+  docPref.symmetry.mode = 12 -- BOTH_DIAG = 12,
+  app.useTool{ tool=pencil, brush=b, points={ Point(5, 1) } }
+  expect_eq(cel.bounds, Rectangle(0, 0, 8, 8))
+  expect_img(cel.image,
+             { 0, 0, 0, 0, 0, 0, c, 0,
+               0, 0, 0, 0, 0, c, 0, c,
+               0, 0, 0, 0, c, 0, c, 0,
+               0, 0, 0, 0, 0, c, 0, 0,
+
+               0, 0, c, 0, 0, 0, 0, 0,
+               0, c, 0, c, 0, 0, 0, 0,
+               c, 0, c, 0, 0, 0, 0, 0,
+               0, c, 0, 0, 0, 0, 0, 0 })
+
+  -- symmetry with image brush tests
+  local brushImg = Image(3, 2, ColorMode.INDEXED)
+  array_to_pixels({ 1, 2, 3,
+                    0, 1, 2 }, brushImg)
+  local bru = Brush { image=brushImg }
+  s = Sprite(12, 12, ColorMode.INDEXED)
+  cel = s.cels[1]
+  local p = s.palettes[1]
+  p:setColor(1, Color { r=255, g=0, b=0, a=255 })
+  p:setColor(2, Color { r=0, g=255, b=0, a=255 })
+  p:setColor(3, Color { r=0, g=0, b=255, a=255 })
+  -- Enable symmetry
+  pref = app.preferences
+  docPref = pref.document(s)
+  docPref.symmetry.mode = 15 -- ALL = 15,
+  app.useTool{ tool=pencil, brush=bru, points={ Point(4, 2) } }
+  expect_eq(cel.bounds, Rectangle(1, 1, 10, 10))
+  expect_img(cel.image,
+             { 0, 0, 1, 2, 3,  3, 2, 1, 0, 0,
+               0, 0, 0, 1, 2,  2, 1, 0, 0, 0,
+               1, 0, 0, 0, 0,  0, 0, 0, 0, 1,
+               2, 1, 0, 0, 0,  0, 0, 0, 1, 2,
+               3, 2, 0, 0, 0,  0, 0, 0, 2, 3,
+
+               3, 2, 0, 0, 0,  0, 0, 0, 2, 3,
+               2, 1, 0, 0, 0,  0, 0, 0, 1, 2,
+               1, 0, 0, 0, 0,  0, 0, 0, 0, 1,
+               0, 0, 0, 1, 2,  2, 1, 0, 0, 0,
+               0, 0, 1, 2, 3,  3, 2, 1, 0, 0 })
+  app.undo()
+
+  docPref.symmetry.x_axis = 5.5
+  app.useTool{ tool=pencil, brush=bru, points={ Point(4, 2) } }
+  expect_eq(cel.bounds, Rectangle(1, 1, 9, 10))
+  expect_img(cel.image,
+             { 0, 0, 1, 2, 3, 2, 1, 0, 0,
+               0, 0, 0, 1, 2, 1, 0, 0, 0,
+               1, 0, 0, 0, 0, 0, 0, 0, 1,
+               2, 1, 0, 0, 0, 0, 0, 1, 2,
+               3, 2, 0, 0, 0, 0, 0, 2, 3,
+
+               3, 2, 0, 0, 0, 0, 0, 2, 3,
+               2, 1, 0, 0, 0, 0, 0, 1, 2,
+               1, 0, 0, 0, 0, 0, 0, 0, 1,
+               0, 0, 0, 1, 2, 1, 0, 0, 0,
+               0, 0, 1, 2, 3, 2, 1, 0, 0 })
+  app.undo()
+
+  docPref.symmetry.x_axis = 5.5
+  docPref.symmetry.y_axis = 5.5
+  app.useTool{ tool=pencil, brush=bru, points={ Point(4, 2) } }
+  expect_eq(cel.bounds, Rectangle(1, 1, 9, 9))
+  expect_img(cel.image,
+             { 0, 0, 1, 2, 3, 2, 1, 0, 0,
+               0, 0, 0, 1, 2, 1, 0, 0, 0,
+               1, 0, 0, 0, 0, 0, 0, 0, 1,
+               2, 1, 0, 0, 0, 0, 0, 1, 2,
+               3, 2, 0, 0, 0, 0, 0, 2, 3,
+               2, 1, 0, 0, 0, 0, 0, 1, 2,
+               1, 0, 0, 0, 0, 0, 0, 0, 1,
+               0, 0, 0, 1, 2, 1, 0, 0, 0,
+               0, 0, 1, 2, 3, 2, 1, 0, 0 })
+  app.undo()
+
+  docPref.symmetry.x_axis = 6
+  docPref.symmetry.y_axis = 5.5
+  app.useTool{ tool=pencil, brush=bru, points={ Point(4, 2) } }
+  expect_eq(cel.bounds, Rectangle(1, 1, 10, 9))
+  expect_img(cel.image,
+             { 0, 0, 1, 2, 3,  3, 2, 1, 0, 0,
+               0, 0, 0, 1, 2,  2, 1, 0, 0, 0,
+               1, 0, 0, 0, 0,  0, 0, 0, 0, 1,
+               2, 1, 0, 0, 0,  0, 0, 0, 1, 2,
+               3, 2, 0, 0, 0,  0, 0, 0, 2, 3,
+               2, 1, 0, 0, 0,  0, 0, 0, 1, 2,
+               1, 0, 0, 0, 0,  0, 0, 0, 0, 1,
+               0, 0, 0, 1, 2,  2, 1, 0, 0, 0,
+               0, 0, 1, 2, 3,  3, 2, 1, 0, 0 })
 end
 
 ----------------------------------------------------------------------
@@ -681,4 +828,88 @@ do
              { 1, 1, 1,
                1, 2, 1,
                1, 1, 1 })
+end
+
+----------------------------------------------------------------------
+-- Floodfill + 8-Connected + Stop at Grid tests
+----------------------------------------------------------------------
+
+do
+  -- https://github.com/aseprite/aseprite/issues/3564
+  -- 8-Connected Fill Escapes Grid With "Stop At Grid" Checked
+  -- Magic Wand Test - Stop At Grid + pixel connectivity '8-connected':
+  local spr2 = Sprite(9, 9, ColorMode.INDEXED)
+  local p2 = spr2.palettes[1]
+  p2:setColor(0, Color{ r=0, g=0, b=0 })
+  p2:setColor(1, Color{ r=255, g=255, b=255 })
+  p2:setColor(2, Color{ r=255, g=0, b=0 })
+
+  -- Changing grid size:
+  spr2.gridBounds = Rectangle(0, 0, 3, 3)
+
+  -- Painting a white background
+  app.useTool {
+    tool='paint_bucket',
+    color=1,
+    points={ Point(0, 0) }
+  }
+
+  -- Configure magic wand settings
+  app.command.ShowGrid()
+  app.preferences.tool("magic_wand").floodfill.pixel_connectivity = 1
+  app.preferences.tool("magic_wand").floodfill.stop_at_grid = 2
+  app.preferences.tool("magic_wand").floodfill.refer_to = 0
+  app.preferences.tool("magic_wand").contiguous = true
+  app.useTool {
+    tool='magic_wand',
+    points={ Point(4, 4) }
+  }
+
+  -- Painting the selected area
+  app.useTool {
+    tool='paint_bucket',
+    color=0,
+    points={ Point(4, 4) }
+  }
+
+  expect_img(app.activeImage, { 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                                1, 1, 1, 1, 1, 1, 1, 1, 1,
+                                1, 1, 1, 1, 1, 1, 1, 1, 1,
+                                1, 1, 1, 0, 0, 0, 1, 1, 1,
+                                1, 1, 1, 0, 0, 0, 1, 1, 1,
+                                1, 1, 1, 0, 0, 0, 1, 1, 1,
+                                1, 1, 1, 1, 1, 1, 1, 1, 1,
+                                1, 1, 1, 1, 1, 1, 1, 1, 1,
+                                1, 1, 1, 1, 1, 1, 1, 1, 1 })
+  app.undo()
+  app.undo()
+
+  -- Paint Bucket Test - Stop At Grid + pixel connectivity '8-connected':
+  app.preferences.tool("paint_bucket").floodfill.pixel_connectivity = 1
+  app.preferences.tool("paint_bucket").floodfill.stop_at_grid = 1
+  app.preferences.tool("paint_bucket").floodfill.refer_to = 0
+  app.preferences.tool("paint_bucket").contiguous = true
+  app.useTool {
+    tool='paint_bucket',
+    color=2,
+    points={ Point(4, 4) }
+  }
+
+  expect_img(app.activeImage, { 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                                1, 1, 1, 1, 1, 1, 1, 1, 1,
+                                1, 1, 1, 1, 1, 1, 1, 1, 1,
+                                1, 1, 1, 2, 2, 2, 1, 1, 1,
+                                1, 1, 1, 2, 2, 2, 1, 1, 1,
+                                1, 1, 1, 2, 2, 2, 1, 1, 1,
+                                1, 1, 1, 1, 1, 1, 1, 1, 1,
+                                1, 1, 1, 1, 1, 1, 1, 1, 1,
+                                1, 1, 1, 1, 1, 1, 1, 1, 1 })
+
+  app.command.ShowGrid()
+  app.preferences.tool("magic_wand").floodfill.pixel_connectivity = 0
+  app.preferences.tool("magic_wand").floodfill.stop_at_grid = 0
+  app.preferences.tool("magic_wand").floodfill.refer_to = 0
+  app.preferences.tool("paint_bucket").floodfill.pixel_connectivity = 0
+  app.preferences.tool("paint_bucket").floodfill.stop_at_grid = 0
+  app.preferences.tool("paint_bucket").floodfill.refer_to = 0
 end

@@ -1,12 +1,12 @@
 // Aseprite
-// Copyright (C) 2019-2022  Igara Studio S.A.
+// Copyright (C) 2019-2025  Igara Studio S.A.
 // Copyright (C) 2001-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
 
 #ifdef HAVE_CONFIG_H
-#include "config.h"
+  #include "config.h"
 #endif
 
 #include "app/app.h"
@@ -32,8 +32,6 @@ namespace app {
 using namespace base;
 using namespace ui;
 
-#ifdef ENABLE_UI
-
 namespace {
 
 const int kMonitoringPeriod = 100;
@@ -42,27 +40,25 @@ class FilterWorkerAlert {
 public:
   FilterWorkerAlert(std::function<void()>&& onTick)
     : m_timer(kMonitoringPeriod)
-    , m_window(ui::Alert::create(Strings::alerts_applying_filter())) {
+    , m_window(ui::Alert::create(Strings::alerts_applying_filter()))
+  {
     m_window->addProgress();
 
     m_timer.Tick.connect(std::move(onTick));
     m_timer.start();
   }
 
-  void openAndWait() {
+  void openAndWait()
+  {
     m_window->openWindowInForeground();
 
     // Stop the monitoring timer.
     m_timer.stop();
   }
 
-  void close() {
-    m_window->closeWindow(nullptr);
-  }
+  void close() { m_window->closeWindow(nullptr); }
 
-  void setProgress(double progress) {
-    m_window->setProgress(progress);
-  }
+  void setProgress(double progress) { m_window->setProgress(progress); }
 
 private:
   ui::Timer m_timer; // Monitoring timer to update the progress-bar
@@ -70,8 +66,6 @@ private:
 };
 
 } // anonymous namespace
-
-#endif  // ENABLE_UI
 
 // Applies filters in two threads: a background worker thread to
 // modify the sprite, and the main thread to monitoring the progress
@@ -90,24 +84,20 @@ public:
 
 private:
   void applyFilterInBackground();
-#ifdef ENABLE_UI
   void onMonitoringTick();
-#endif
 
   FilterManagerImpl* m_filterMgr; // Effect to be applied.
-  std::mutex m_mutex;           // Mutex to access to 'pos', 'done' and 'cancelled' fields in different threads.
-  float m_pos;                  // Current progress position
-  bool m_done;                  // Was the effect completely applied?
-  bool m_cancelled;             // Was the effect cancelled by the user?
-  bool m_abort;                 // An exception was thrown
+  std::mutex m_mutex; // Mutex to access to 'pos', 'done' and 'cancelled' fields in different
+                      // threads.
+  float m_pos;        // Current progress position
+  bool m_done;        // Was the effect completely applied?
+  bool m_cancelled;   // Was the effect cancelled by the user?
+  bool m_abort;       // An exception was thrown
   std::string m_error;
-#ifdef ENABLE_UI
   std::unique_ptr<FilterWorkerAlert> m_alert;
-#endif
 };
 
-FilterWorker::FilterWorker(FilterManagerImpl* filterMgr)
-  : m_filterMgr(filterMgr)
+FilterWorker::FilterWorker(FilterManagerImpl* filterMgr) : m_filterMgr(filterMgr)
 {
   m_filterMgr->setProgressDelegate(this);
 
@@ -116,49 +106,47 @@ FilterWorker::FilterWorker(FilterManagerImpl* filterMgr)
   m_cancelled = false;
   m_abort = false;
 
-#ifdef ENABLE_UI
   if (Manager::getDefault())
-    m_alert.reset(new FilterWorkerAlert([this]{ onMonitoringTick(); }));
-#endif
+    m_alert.reset(new FilterWorkerAlert([this] { onMonitoringTick(); }));
 }
 
 FilterWorker::~FilterWorker()
 {
-#ifdef ENABLE_UI
   if (m_alert)
     m_alert->close();
-#endif
 }
 
 void FilterWorker::run()
 {
-  // Initialize writting transaction
+  // Initialize writing transaction from the main thread. This is
+  // required to get the activeSite() from the UIContext from
+  // CmdTransaction::calcSpritePosition().
+  //
+  // The document will keep the UI thread associated as the "writer"
+  // thread, but that will be updated later in
+  // applyFilterInBackground() with the worker thread ID.
   m_filterMgr->initTransaction();
 
-#ifdef ENABLE_UI
   std::thread thread;
   // Open the alert window in foreground (this is modal, locks the main thread)
   if (m_alert) {
     // Launch the thread to apply the effect in background
-    thread = std::thread([this]{ applyFilterInBackground(); });
+    thread = std::thread([this] { applyFilterInBackground(); });
     m_alert->openAndWait();
   }
-  else
-#endif // ENABLE_UI
-  {
+  else {
     // Without UI? Apply filter from the main thread
     applyFilterInBackground();
   }
 
   {
-    std::lock_guard lock(m_mutex);
+    const std::lock_guard lock(m_mutex);
     if (m_done && m_filterMgr->isTransaction())
       m_filterMgr->commitTransaction();
     else
       m_cancelled = true;
   }
 
-#ifdef ENABLE_UI
   // Wait the `effect_bg' thread
   if (thread.joinable())
     thread.join();
@@ -167,11 +155,6 @@ void FilterWorker::run()
     Console console;
     console.printf("A problem has occurred.\n\nDetails:\n%s", m_error.c_str());
   }
-  else if (m_cancelled && !m_filterMgr->isTransaction()) {
-    StatusBar::instance()->showTip(2500,
-      Strings::statusbar_tips_filter_no_unlocked_layer());
-  }
-#endif // ENABLE_UI
 }
 
 // Called by FilterManagerImpl to informate the progress of the filter.
@@ -180,7 +163,7 @@ void FilterWorker::run()
 //
 void FilterWorker::reportProgress(float progress)
 {
-  std::lock_guard lock(m_mutex);
+  const std::lock_guard lock(m_mutex);
   m_pos = progress;
 }
 
@@ -192,7 +175,7 @@ bool FilterWorker::isCancelled()
 {
   bool cancelled;
 
-  std::lock_guard lock(m_mutex);
+  const std::lock_guard lock(m_mutex);
   cancelled = (m_cancelled || m_abort);
 
   return cancelled;
@@ -205,11 +188,16 @@ bool FilterWorker::isCancelled()
 void FilterWorker::applyFilterInBackground()
 {
   try {
+    // This background thread is the new writer. This is required to
+    // avoid read-locking from the UI thread from Editor and Timeline
+    // onPaint() events.
+    m_filterMgr->updateWriterThread();
+
     // Apply the filter
     m_filterMgr->applyToTarget();
 
     // Mark the work as 'done'.
-    std::lock_guard lock(m_mutex);
+    const std::lock_guard lock(m_mutex);
     m_done = true;
   }
   catch (std::exception& e) {
@@ -218,13 +206,11 @@ void FilterWorker::applyFilterInBackground()
   }
 }
 
-#ifdef ENABLE_UI
-
 // Called by the GUI monitor (a timer in the gui module that is called
 // every 100 milliseconds).
 void FilterWorker::onMonitoringTick()
 {
-  std::lock_guard lock(m_mutex);
+  const std::lock_guard lock(m_mutex);
 
   if (m_alert) {
     m_alert->setProgress(m_pos);
@@ -234,16 +220,14 @@ void FilterWorker::onMonitoringTick()
   }
 }
 
-#endif
-
 // Applies the filter in a background thread meanwhile a progress bar
 // is shown to the user.
 //
 // [main thread]
 //
-void start_filter_worker(FilterManagerImpl* filterMgr)
+void FilterManagerImpl::startWorker()
 {
-  FilterWorker filterWorker(filterMgr);
+  FilterWorker filterWorker(this);
   filterWorker.run();
 }
 

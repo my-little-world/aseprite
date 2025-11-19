@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Aseprite -->
-<!-- Copyright (C) 2018-2022  Igara Studio S.A. -->
+<!-- Copyright (C) 2018-2025  Igara Studio S.A. -->
 <!-- Copyright (C) 2014-2018  David Capello -->
 <preferences>
 
@@ -94,6 +94,10 @@
       <value id="HORIZONTAL" value="1" />
       <value id="VERTICAL" value="2" />
       <value id="BOTH" value="3" />
+      <value id="RIGHT_DIAG" value="4" />
+      <value id="LEFT_DIAG" value="8" />
+      <value id="BOTH_DIAG" value="12" />
+      <value id="ALL" value="15" />
     </enum>
     <enum id="PaintingCursorType">
       <value id="SIMPLE_CROSSHAIR" value="0" />
@@ -133,6 +137,15 @@
       <value id="BILINEAR_MIPMAP" value="2" />
       <value id="TRILINEAR_MIPMAP" value="3" />
     </enum>
+    <enum id="AlphaRange">
+      <value id="EIGHT_BIT" value="0" />
+      <value id="PERCENTAGE" value="1" />
+    </enum>
+    <enum id="CelContentFormat">
+      <value id="COMPRESSED" value="0" />
+      <value id="KEEP_AS_IS" value="1" />
+      <value id="RAW_IMAGE" value="2" />
+    </enum>
   </types>
 
   <global>
@@ -153,6 +166,8 @@
       <option id="keep_closed_sprite_on_memory" type="bool" default="true" />
       <option id="keep_closed_sprite_on_memory_for" type="double" default="15.0" />
       <option id="show_full_path" type="bool" default="true" />
+      <option id="edit_full_path" type="bool" default="false" />
+      <option id="workspace_layout" type="std::string" />
       <option id="timeline_position" type="TimelinePosition" default="TimelinePosition::BOTTOM" />
       <option id="timeline_layer_panel_width" type="int" default="100" />
       <option id="show_menu_bar" type="bool" default="true" />
@@ -180,7 +195,7 @@
       <option id="straight_line_preview" type="bool" default="true" />
       <option id="play_once" type="bool" default="false" />
       <option id="play_all" type="bool" default="false" />
-      <option id="play_subtags" type="bool" default="false" />
+      <option id="play_subtags" type="bool" default="true" />
       <!-- TODO this would be nice to be "true" but we have to fix
            some performance issue rendering huge sprites with small
            zoom levels -->
@@ -201,6 +216,10 @@
     </section>
     <section id="timeline">
       <option id="keep_selection" type="bool" default="false" />
+      <option id="select_on_click" type="bool" default="true" />
+      <option id="select_on_click_with_key" type="bool" default="true" />
+      <option id="select_on_drag" type="bool" default="true" />
+      <option id="drag_and_drop_from_edges" type="bool" default="true" />
     </section>
     <section id="cursor">
       <option id="use_native_cursor" type="bool" default="false" />
@@ -208,11 +227,13 @@
       <option id="cursor_color" type="app::Color" default="app::Color::fromMask()" />
       <option id="painting_cursor_type" type="PaintingCursorType" default="PaintingCursorType::CROSSHAIR_ON_SPRITE" />
       <option id="brush_preview" type="BrushPreview" default="BrushPreview::FULL" />
+      <option id="brush_preview_in_preview" type="bool" default="false" />
+      <option id="snap_to_grid" type="bool" default="false" />
     </section>
     <section id="preview" text="Preview">
       <option id="play_once" type="bool" default="false" />
       <option id="play_all" type="bool" default="false" />
-      <option id="play_subtags" type="bool" default="false" />
+      <option id="play_subtags" type="bool" default="true" />
     </section>
     <section id="theme" text="Theme">
       <option id="selected" type="std::string" default="&quot;default&quot;" />
@@ -221,11 +242,13 @@
     </section>
     <section id="tablet" text="Tablet">
       <option id="api" type="std::string" />
+      <option id="set_cursor_fix" type="bool" default="true" />
     </section>
     <section id="experimental" text="Experimental">
       <option id="multiple_windows" type="bool" default="false" />
       <option id="new_render_engine" type="bool" default="true" />
       <option id="new_blend" type="bool" default="true" />
+      <option id="compose_groups" type="bool" default="false" />
       <option id="use_native_clipboard" type="bool" default="true" />
       <option id="use_native_file_dialog" type="bool" default="true" />
       <option id="use_shaders_for_color_selectors" type="bool" default="true" />
@@ -233,7 +256,9 @@
       <option id="one_finger_as_mouse_movement" type="bool" default="true" />
       <option id="load_wintab_driver" type="bool" default="false" />
       <option id="flash_layer" type="bool" default="false" />
+      <option id="use_selection_tool_loop" type="bool" default="false" />
       <option id="nonactive_layers_opacity" type="int" default="255" />
+      <option id="nonactive_layers_opacity_preview" type="int" default="255" />
     </section>
     <section id="news">
       <option id="cache_file" type="std::string" />
@@ -255,6 +280,7 @@
       <option id="show_invalid_fg_bg_color_alert" type="bool" default="true" />
       <option id="entries_separator" type="bool" default="true" />
       <option id="show_color_and_tiles" type="bool" default="true" />
+      <option id="default_tileset_mode" type="app::TilesetMode" default="app::TilesetMode::Auto" />
     </section>
     <section id="updater">
       <option id="inits" type="int" default="0" />
@@ -300,6 +326,7 @@
       <option id="doubleclick_select_tile" type="bool" default="true" />
       <option id="force_rotsprite" type="bool" default="false" />
       <option id="multicel_when_layers_or_frames" type="bool" default="true" />
+      <option id="snap_to_grid" type="bool" default="true" />
     </section>
     <section id="quantization">
       <option id="with_alpha" type="bool" default="true" />
@@ -308,6 +335,7 @@
       <option id="to_gray" type="ToGrayAlgorithm" default="ToGrayAlgorithm::DEFAULT" />
       <option id="advanced" type="bool" default="false" />
       <option id="rgbmap_algorithm" type="doc::RgbMapAlgorithm" default="doc::RgbMapAlgorithm::DEFAULT" />
+      <option id="fit_criteria" type="doc::FitCriteria" default="doc::FitCriteria::DEFAULT" />
     </section>
     <section id="eyedropper" text="Editor">
       <option id="channel" type="EyedropperChannel" default="EyedropperChannel::COLOR_ALPHA" />
@@ -315,6 +343,7 @@
       <option id="discard_brush" type="bool" default="false" />
     </section>
     <section id="shared">
+      <option id="share_dynamics" type="bool" default="true" />
       <option id="share_ink" type="bool" default="false" />
       <option id="ink" type="app::tools::InkType" default="app::tools::InkType::DEFAULT" />
     </section>
@@ -329,11 +358,13 @@
     <section id="file_selector">
       <option id="current_folder" type="std::string" default="&quot;&lt;empty&gt;&quot;" />
       <option id="zoom" type="double" default="1.0" />
+      <option id="show_hidden" type="bool" default="false" />
     </section>
     <section id="text_tool">
       <option id="font_face" type="std::string" />
       <option id="font_size" type="int" default="12" />
       <option id="antialias" type="bool" default="false" />
+      <option id="font_info" type="std::string" />
     </section>
     <section id="symmetry_mode">
       <option id="enabled" type="bool" default="false" />
@@ -422,11 +453,23 @@
       <option id="window_profile" type="WindowColorProfile" default="WindowColorProfile::MONITOR" />
       <option id="window_profile_name" type="std::string" />
     </section>
+    <section id="range">
+      <option id="alpha" type="AlphaRange" default="AlphaRange::EIGHT_BIT" />
+      <option id="opacity" type="AlphaRange" default="AlphaRange::PERCENTAGE" />
+    </section>
     <section id="canvas_size">
       <option id="trim_outside" type="bool" default="false" />
     </section>
     <section id="tileset">
       <option id="base_index" type="int" default="1" />
+      <option id="cache_compressed_tilesets" type="bool" default="true" />
+      <option id="advanced" type="bool" default="false" />
+    </section>
+    <section id="tilemap">
+      <option id="show_delete_unused_tileset_alert" type="bool" default="true" />
+    </section>
+    <section id="aseprite_format">
+      <option id="cel_format" type="CelContentFormat" default="CelContentFormat::COMPRESSED" />
     </section>
   </global>
 
@@ -452,6 +495,21 @@
       <option id="stop_at_grid" type="StopAtGrid" default="StopAtGrid::NEVER" />
       <option id="refer_to" type="FillReferTo" default="FillReferTo::ACTIVE_LAYER" />
       <option id="pixel_connectivity" type="PixelConnectivity" default="PixelConnectivity::FOUR_CONNECTED" />
+    </section>
+    <section id="dynamics">
+      <option id="stabilizer" type="bool" default="false" />
+      <option id="stabilizer_factor" type="int" default="0" />
+      <option id="size" type="app::tools::DynamicSensor" default="app::tools::DynamicSensor::Static" />
+      <option id="angle" type="app::tools::DynamicSensor" default="app::tools::DynamicSensor::Static" />
+      <option id="gradient" type="app::tools::DynamicSensor" default="app::tools::DynamicSensor::Static" />
+      <option id="min_size" type="int" default="1" />
+      <option id="min_angle" type="int" default="1" />
+      <option id="color_from_to" type="app::tools::ColorFromTo" default="app::tools::ColorFromTo::BgToFg" />
+      <option id="matrix_name" type="std::string" />
+      <option id="min_pressure_threshold" type="double" default="0.1" />
+      <option id="max_pressure_threshold" type="double" default="0.9" />
+      <option id="min_velocity_threshold" type="double" default="0.1" />
+      <option id="max_velocity_threshold" type="double" default="0.9" />
     </section>
   </tool>
 
@@ -495,6 +553,7 @@
       <option id="enabled" type="bool" default="false" />
       <option id="overlay_enabled" type="bool" default="false" />
       <option id="overlay_size" type="int" default="5" />
+      <option id="scale_up_to_fit" type="bool" default="false" />
     </section>
     <section id="onionskin">
       <option id="active" type="bool" default="false" />
@@ -517,6 +576,8 @@
       <option id="ani_dir" type="doc::AniDir" default="doc::AniDir::FORWARD" />
       <option id="apply_pixel_ratio" type="bool" default="false" />
       <option id="for_twitter" type="bool" default="false" />
+      <option id="play_subtags" type="bool" default="true" />
+      <option id="ignore_empty" type="bool" default="false" />
     </section>
     <section id="sprite_sheet">
       <option id="defined" type="bool" default="false" />

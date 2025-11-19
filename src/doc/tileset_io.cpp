@@ -5,7 +5,7 @@
 // Read LICENSE.txt for more information.
 
 #ifdef HAVE_CONFIG_H
-#include "config.h"
+  #include "config.h"
 #endif
 
 #include "doc/tileset_io.h"
@@ -22,85 +22,86 @@
 
 #include <iostream>
 
-// Extra BYTE with special flags to check the tileset version.  This
-// field didn't exist in Aseprite v1.3-alpha3 (so read8() fails = 0)
-#define TILESET_VER1     1
-
-// Tileset has UserData now
-#define TILESET_VER2     2
-
-// Tileset name (was missing originally)
-#define TILESET_VER3     3
-
 namespace doc {
 
 using namespace base::serialization;
 using namespace base::serialization::little_endian;
 
-bool write_tileset(std::ostream& os,
-                   const Tileset* tileset,
-                   CancelIO* cancel)
+bool write_tileset(std::ostream& os, const Tileset* tileset, CancelIO* cancel)
 {
   write32(os, tileset->id());
   write32(os, tileset->size());
   write_grid(os, tileset->grid());
 
-  for (tile_index ti=0; ti<tileset->size(); ++ti) {
+  for (tile_index ti = 0; ti < tileset->size(); ++ti) {
     if (cancel && cancel->isCanceled())
       return false;
 
     write_image(os, tileset->get(ti).get(), cancel);
   }
 
-  write8(os, TILESET_VER3);
+  write8(os, uint8_t(TilesetSerialFormat::LastVer));
   write_user_data(os, tileset->userData());
   write_string(os, tileset->name());
+
+  for (tile_index ti = 0; ti < tileset->size(); ++ti) {
+    if (cancel && cancel->isCanceled())
+      return false;
+
+    write_user_data(os, tileset->getTileData(ti));
+  }
   return true;
 }
 
 Tileset* read_tileset(std::istream& is,
                       Sprite* sprite,
-                      bool setId,
-                      bool* isOldVersion)
+                      const bool setId,
+                      TilesetSerialFormat* tilesetVer,
+                      const SerialFormat serial)
 {
-  ObjectId id = read32(is);
-  tileset_index ntiles = read32(is);
-  Grid grid = read_grid(is, setId);
-  auto tileset = new Tileset(sprite, grid, ntiles);
+  const ObjectId id = read32(is);
+  const tileset_index ntiles = read32(is);
+  const Grid grid = read_grid(is);
+  auto* tileset = new Tileset(sprite, grid, sprite ? ntiles : 0);
   if (setId)
     tileset->setId(id);
 
-  for (tileset_index ti=0; ti<ntiles; ++ti) {
-    ImageRef image(read_image(is, setId));
-    tileset->set(ti, image);
+  for (tileset_index ti = 0; ti < ntiles; ++ti) {
+    const ImageRef image(read_image(is, setId));
+
+    if (sprite)
+      tileset->set(ti, image);
+    else
+      tileset->add(image);
   }
 
   // Read extra version byte after tiles
-  uint32_t ver = read8(is);
-  if (ver >= TILESET_VER1) {
-    if (isOldVersion)
-      *isOldVersion = false;
-
+  const auto ver = TilesetSerialFormat(read8(is));
+  if (tilesetVer)
+    *tilesetVer = ver;
+  if (ver >= TilesetSerialFormat::Ver1) {
     tileset->setBaseIndex(1);
 
-    if (ver >= TILESET_VER2) {
-      UserData userData = read_user_data(is);
+    if (ver >= TilesetSerialFormat::Ver2) {
+      const UserData userData = read_user_data(is, serial);
       tileset->setUserData(userData);
 
-      if (ver >= TILESET_VER3)
+      if (ver >= TilesetSerialFormat::Ver3) {
         tileset->setName(read_string(is));
+
+        for (tileset_index ti = 0; ti < ntiles; ++ti) {
+          tileset->setTileData(ti, read_user_data(is, serial));
+        }
+      }
     }
   }
   // Old tileset used in internal versions (this was added to recover
   // old files, maybe in a future we could remove this code)
   else {
-    if (isOldVersion)
-      *isOldVersion = true;
-
     fix_old_tileset(tileset);
   }
 
   return tileset;
 }
 
-}
+} // namespace doc

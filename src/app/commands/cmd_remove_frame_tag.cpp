@@ -6,7 +6,7 @@
 // the End-User License Agreement for Aseprite.
 
 #ifdef HAVE_CONFIG_H
-#include "config.h"
+  #include "config.h"
 #endif
 
 #include "app/app.h"
@@ -15,7 +15,6 @@
 #include "app/commands/params.h"
 #include "app/context.h"
 #include "app/context_access.h"
-#include "app/loop_tag.h"
 #include "app/tx.h"
 #include "app/ui/timeline/timeline.h"
 #include "base/convert_to.h"
@@ -38,7 +37,7 @@ private:
 };
 
 RemoveFrameTagCommand::RemoveFrameTagCommand()
-  : Command(CommandId::RemoveFrameTag(), CmdRecordableFlag)
+  : Command(CommandId::RemoveFrameTag())
   , m_tagId(NullId)
 {
 }
@@ -77,7 +76,7 @@ void RemoveFrameTagCommand::onExecute(Context* context)
   if (!foundTag)
     return;
 
-  Tx tx(writer.context(), friendlyName());
+  Tx tx(writer, friendlyName());
   tx(new cmd::RemoveTag(sprite, foundTag));
   tx.commit();
 

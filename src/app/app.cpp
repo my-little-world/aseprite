@@ -1,16 +1,17 @@
 // Aseprite
-// Copyright (C) 2018-2022  Igara Studio S.A.
+// Copyright (C) 2018-2025  Igara Studio S.A.
 // Copyright (C) 2001-2018  David Capello
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
 
 #ifdef HAVE_CONFIG_H
-#include "config.h"
+  #include "config.h"
 #endif
 
 #include "app/app.h"
 
+#include "app/app_menus.h"
 #include "app/app_mod.h"
 #include "app/check_update.h"
 #include "app/cli/app_options.h"
@@ -57,6 +58,8 @@
 #include "app/util/clipboard.h"
 #include "base/exception.h"
 #include "base/fs.h"
+#include "base/platform.h"
+#include "base/replace_string.h"
 #include "base/split_string.h"
 #include "doc/sprite.h"
 #include "fmt/format.h"
@@ -76,6 +79,11 @@
   #include "os/x11/system.h"
 #endif
 
+#if ENABLE_WEBP && LAF_WINDOWS && LAF_SKIA
+  #include "app/util/decode_webp.h"
+#endif
+
+#include <cstdio>
 #include <iostream>
 #include <memory>
 
@@ -101,13 +109,10 @@ namespace {
 
 class ConsoleEngineDelegate : public script::EngineDelegate {
 public:
-  ConsoleEngineDelegate(Console& console) : m_console(console) { }
-  void onConsoleError(const char* text) override {
-    onConsolePrint(text);
-  }
-  void onConsolePrint(const char* text) override {
-    m_console.printf("%s\n", text);
-  }
+  ConsoleEngineDelegate(Console& console) : m_console(console) {}
+  void onConsoleError(const char* text) override { onConsolePrint(text); }
+  void onConsolePrint(const char* text) override { m_console.printf("%s\n", text); }
+
 private:
   Console& m_console;
 };
@@ -118,22 +123,8 @@ private:
 
 class App::CoreModules {
 public:
-#ifdef ENABLE_UI
-  typedef app::UIContext ContextT;
-#else
-  typedef app::Context ContextT;
-#endif
-
   ConfigModule m_configModule;
-  ContextT m_context;
-};
-
-class App::LoadLanguage {
-public:
-  LoadLanguage(Preferences& pref,
-               Extensions& exts) {
-    Strings::createInstance(pref, exts);
-  }
+  app::UIContext m_context;
 };
 
 class App::Modules {
@@ -141,16 +132,13 @@ public:
   LoggerModule m_loggerModule;
   FileSystemModule m_file_system_module;
   Extensions m_extensions;
-  // Load main language (after loading the extensions)
-  LoadLanguage m_loadLanguage;
+  Strings m_strings; // Load main language (after loading the extensions)
   tools::ToolBox m_toolbox;
   tools::ActiveToolManager m_activeToolManager;
   Commands m_commands;
-#ifdef ENABLE_UI
   RecentFiles m_recent_files;
   InputChain m_inputChain;
   Clipboard m_clipboard;
-#endif
 #ifdef ENABLE_DATA_RECOVERY
   // This is a raw pointer because we want to delete it explicitly.
   // (e.g. if an exception occurs, the ~Modules() doesn't have to
@@ -158,28 +146,26 @@ public:
   std::unique_ptr<app::crash::DataRecovery> m_recovery;
 #endif
 
-  Modules(const bool createLogInDesktop,
-          Preferences& pref)
+  Modules(const bool createLogInDesktop, Preferences& pref)
     : m_loggerModule(createLogInDesktop)
-    , m_loadLanguage(pref, m_extensions)
+    , m_strings(pref, m_extensions)
     , m_activeToolManager(&m_toolbox)
-#ifdef ENABLE_UI
     , m_recent_files(pref.general.recentItems())
-#endif
 #ifdef ENABLE_DATA_RECOVERY
     , m_recovery(nullptr)
 #endif
   {
   }
 
-  ~Modules() {
+  ~Modules()
+  {
 #ifdef ENABLE_DATA_RECOVERY
-    ASSERT(m_recovery == nullptr ||
-           ui::get_app_state() == ui::AppState::kClosingWithException);
+    ASSERT(m_recovery == nullptr || ui::get_app_state() == ui::AppState::kClosingWithException);
 #endif
   }
 
-  app::crash::DataRecovery* recovery() {
+  app::crash::DataRecovery* recovery()
+  {
 #ifdef ENABLE_DATA_RECOVERY
     return m_recovery.get();
 #else
@@ -187,36 +173,39 @@ public:
 #endif
   }
 
-  void createDataRecovery(Context* ctx) {
+  void createDataRecovery(Context* ctx)
+  {
 #ifdef ENABLE_DATA_RECOVERY
 
-#ifdef ENABLE_TRIAL_MODE
-    DRM_INVALID{
+  #ifdef ENABLE_TRIAL_MODE
+    DRM_INVALID
+    {
       return;
     }
-#endif
+  #endif
 
     m_recovery = std::make_unique<app::crash::DataRecovery>(ctx);
-    m_recovery->SessionsListIsReady.connect(
-      [] {
-        ui::assert_ui_thread();
-        auto app = App::instance();
-        if (app && app->mainWindow()) {
-          // Notify that the list of sessions is ready.
-          app->mainWindow()->dataRecoverySessionsAreReady();
-        }
-      });
+    m_recovery->SessionsListIsReady.connect([] {
+      ui::assert_ui_thread();
+      auto app = App::instance();
+      if (app && app->mainWindow()) {
+        // Notify that the list of sessions is ready.
+        app->mainWindow()->dataRecoverySessionsAreReady();
+      }
+    });
 #endif
   }
 
-  void searchDataRecoverySessions() {
+  void searchDataRecoverySessions()
+  {
 #ifdef ENABLE_DATA_RECOVERY
 
-#ifdef ENABLE_TRIAL_MODE
-    DRM_INVALID{
+  #ifdef ENABLE_TRIAL_MODE
+    DRM_INVALID
+    {
       return;
     }
-#endif
+  #endif
 
     ASSERT(m_recovery);
     if (m_recovery)
@@ -224,19 +213,20 @@ public:
 #endif
   }
 
-  void deleteDataRecovery() {
+  void deleteDataRecovery()
+  {
 #ifdef ENABLE_DATA_RECOVERY
 
-#ifdef ENABLE_TRIAL_MODE
-    DRM_INVALID{
+  #ifdef ENABLE_TRIAL_MODE
+    DRM_INVALID
+    {
       return;
     }
-#endif
+  #endif
 
     m_recovery.reset();
 #endif
   }
-
 };
 
 App* App::m_instance = nullptr;
@@ -248,9 +238,7 @@ App::App(AppMod* mod)
   , m_legacy(nullptr)
   , m_isGui(false)
   , m_isShell(false)
-#ifdef ENABLE_UI
   , m_backupIndicator(nullptr)
-#endif
 #ifdef ENABLE_SCRIPTING
   , m_engine(new script::Engine)
 #endif
@@ -261,80 +249,99 @@ App::App(AppMod* mod)
 
 int App::initialize(const AppOptions& options)
 {
-  os::System* system = os::instance();
+  const os::SystemRef system = os::System::instance();
 
-#ifdef ENABLE_UI
-  m_isGui = options.startUI() && !options.previewCLI();
+  // Without Skia backend we don't have GUI.
+  const bool startGui = (options.startUI() && !options.previewCLI());
+#if LAF_SKIA
+  m_isGui = startGui;
 #else
-  m_isGui = false;
+  // True if we should show a warning when running the main Aseprite
+  // executable (no test/benchmark) without args and the GUI is not
+  // available.
+  m_showCliOnlyWarning = (startGui && base::utf8_icmp(base::get_file_title(options.exeName()),
+                                                      get_app_name()) == 0);
 #endif
+
+  // Notify the scripting engine that we're going to enter to GUI
+  // mode, this is useful so we can mark the stdin file handle as
+  // closed so no script can hang the program if it tries to read from
+  // stdin when the GUI is running.
+#ifdef ENABLE_SCRIPTING
+  if (m_isGui)
+    m_engine->notifyRunningGui();
+#endif
+
   m_isShell = options.startShell();
   m_coreModules = std::make_unique<CoreModules>();
 
+  auto& pref = preferences();
+
+  os::TabletOptions tabletOptions;
+
 #if LAF_WINDOWS
 
-  if (options.disableWintab() ||
-      !preferences().experimental.loadWintabDriver() ||
-      preferences().tablet.api() == "pointer") {
-    system->setTabletAPI(os::TabletAPI::WindowsPointerInput);
+  if (options.disableWintab() || !pref.experimental.loadWintabDriver() ||
+      pref.tablet.api() == "pointer") {
+    tabletOptions.api = os::TabletAPI::WindowsPointerInput;
   }
-  else if (preferences().tablet.api() == "wintab_packets")
-    system->setTabletAPI(os::TabletAPI::WintabPackets);
-  else // preferences().tablet.api() == "wintab"
-    system->setTabletAPI(os::TabletAPI::Wintab);
+  else if (pref.tablet.api() == "wintab_packets") {
+    tabletOptions.api = os::TabletAPI::WintabPackets;
+  }
+  else { // pref.tablet.api() == "wintab"
+    tabletOptions.api = os::TabletAPI::Wintab;
+  }
+  tabletOptions.setCursorFix = pref.tablet.setCursorFix();
 
 #elif LAF_MACOS
 
-  if (!preferences().general.osxAsyncView())
+  if (!pref.general.osxAsyncView())
     os::osx_set_async_view(false);
 
 #elif LAF_LINUX
 
-  {
-    const std::string& stylusId = preferences().general.x11StylusId();
-    if (!stylusId.empty())
-      os::x11_set_user_defined_string_to_detect_stylus(stylusId);
-  }
+  tabletOptions.detectStylusPattern = pref.general.x11StylusId();
 
 #endif
 
+  system->setTabletOptions(tabletOptions);
   system->setAppName(get_app_name());
-  system->setAppMode(m_isGui ? os::AppMode::GUI:
-                               os::AppMode::CLI);
+  system->setAppMode(m_isGui ? os::AppMode::GUI : os::AppMode::CLI);
 
   if (m_isGui)
     m_uiSystem.reset(new ui::UISystem);
 
   bool createLogInDesktop = false;
   switch (options.verboseLevel()) {
-    case AppOptions::kNoVerbose:
-      base::set_log_level(ERROR);
-      break;
-    case AppOptions::kVerbose:
-      base::set_log_level(INFO);
-      break;
+    case AppOptions::kNoVerbose: base::set_log_level(ERROR); break;
+    case AppOptions::kVerbose:   base::set_log_level(INFO); break;
     case AppOptions::kHighlyVerbose:
       base::set_log_level(VERBOSE);
       createLogInDesktop = true;
       break;
   }
 
-  initialize_color_spaces(preferences());
+  initialize_color_spaces(pref);
 
 #ifdef ENABLE_DRM
   LOG("APP: Initializing DRM...\n");
   app_configure_drm();
 #endif
 
-  // Load modules
-  m_modules = std::make_unique<Modules>(createLogInDesktop, preferences());
-  m_legacy = std::make_unique<LegacyModules>(isGui() ? REQUIRE_INTERFACE: 0);
-#ifdef ENABLE_UI
-  m_brushes = std::make_unique<AppBrushes>();
+#ifdef ENABLE_STEAM
+  // Don't connect to Steam if -noinapp or -batch mode is used.
+  if (options.noInApp() || !options.startUI())
+    m_inAppSteam = false;
 #endif
 
+  // Load modules
+  m_modules = std::make_unique<Modules>(createLogInDesktop, pref);
+  m_legacy = std::make_unique<LegacyModules>(isGui() ? REQUIRE_INTERFACE : 0);
+  m_appMenus = std::make_unique<AppMenus>(recentFiles());
+  m_brushes = std::make_unique<AppBrushes>();
+
   // Data recovery is enabled only in GUI mode
-  if (isGui() && preferences().general.dataRecovery())
+  if (isGui() && pref.general.dataRecovery())
     m_modules->createDataRecovery(context());
 
   if (isPortable())
@@ -344,7 +351,6 @@ int App::initialize(const AppOptions& options)
   // palette from an old format palette to the new one, etc.
   load_default_palette();
 
-#ifdef ENABLE_UI
   // Initialize GUI interface
   if (isGui()) {
     LOG("APP: GUI mode\n");
@@ -354,8 +360,8 @@ int App::initialize(const AppOptions& options)
     m_uiSystem->setClipboardDelegate(&m_modules->m_clipboard);
 
     // Setup the GUI cursor and redraw screen
-    ui::set_use_native_cursors(preferences().cursor.useNativeCursor());
-    ui::set_mouse_cursor_scale(preferences().cursor.cursorScale());
+    ui::set_use_native_cursors(pref.cursor.useNativeCursor());
+    ui::set_mouse_cursor_scale(pref.cursor.cursorScale());
     ui::set_mouse_cursor(kArrowCursor);
 
     auto manager = ui::Manager::getDefault();
@@ -363,11 +369,12 @@ int App::initialize(const AppOptions& options)
 
     // Create the main window.
     m_mainWindow.reset(new MainWindow);
+    m_mainWindow->initialize();
     if (m_mod)
       m_mod->modMainWindow(m_mainWindow.get());
 
     // Data recovery is enabled only in GUI mode
-    if (preferences().general.dataRecovery())
+    if (pref.general.dataRecovery())
       m_modules->searchDataRecoverySessions();
 
     // Default status of the main window.
@@ -378,22 +385,22 @@ int App::initialize(const AppOptions& options)
     m_mainWindow->openWindow();
 
 #if LAF_LINUX // TODO check why this is required and we cannot call
-              //      updateAllDisplaysWithNewScale() on Linux/X11
+              //      updateAllDisplays() on Linux/X11
     // Redraw the whole screen.
     manager->invalidate();
 #else
     // To know the initial manager size we call to
-    // Manager::updateAllDisplaysWithNewScale(...) so we receive a
+    // Manager::updateAllDisplays(...) so we receive a
     // Manager::onNewDisplayConfiguration() (which will update the
     // bounds of the manager for first time).  This is required so if
     // the OpenFileCommand (called when we're processing the CLI with
     // OpenBatchOfFiles) shows a dialog to open a sequence of files,
     // the dialog is centered correctly to the manager bounds.
     const int scale = Preferences::instance().general.screenScale();
-    manager->updateAllDisplaysWithNewScale(scale);
+    const bool gpu = Preferences::instance().general.gpuAcceleration();
+    manager->updateAllDisplays(scale, gpu);
 #endif
   }
-#endif  // ENABLE_UI
 
 #ifdef ENABLE_SCRIPTING
   // Call the init() function from all plugins
@@ -422,74 +429,80 @@ int App::initialize(const AppOptions& options)
 
 namespace {
 
-#ifdef ENABLE_UI
-  struct CloseMainWindow {
-    std::unique_ptr<MainWindow>& m_win;
-    CloseMainWindow(std::unique_ptr<MainWindow>& win) : m_win(win) { }
-    ~CloseMainWindow() { m_win.reset(nullptr); }
-  };
-#endif
+struct CloseMainWindow {
+  std::unique_ptr<MainWindow>& m_win;
+  CloseMainWindow(std::unique_ptr<MainWindow>& win) : m_win(win) {}
+  ~CloseMainWindow() { m_win.reset(nullptr); }
+};
 
-  struct CloseAllDocs {
-    Context* m_ctx;
-    CloseAllDocs(Context* ctx) : m_ctx(ctx) { }
-    ~CloseAllDocs() {
-      std::vector<Doc*> docs;
-#ifdef ENABLE_UI
-      for (Doc* doc : static_cast<UIContext*>(m_ctx)->getAndRemoveAllClosedDocs())
-        docs.push_back(doc);
-#endif
-      for (Doc* doc : m_ctx->documents())
-        docs.push_back(doc);
-      for (Doc* doc : docs) {
-        // First we close the document. In this way we receive recent
-        // notifications related to the document as a app::Doc. If
-        // we delete the document directly, we destroy the app::Doc
-        // too early, and then doc::~Document() call
-        // DocsObserver::onRemoveDocument(). In this way, observers
-        // could think that they have a fully created app::Doc when
-        // in reality it's a doc::Document (in the middle of a
-        // destruction process).
-        //
-        // TODO: This problem is because we're extending doc::Document,
-        // in the future, we should remove app::Doc.
-        doc->close();
-        delete doc;
-      }
+// Deletes all docs.
+struct DeleteAllDocs {
+  Context* m_ctx;
+  DeleteAllDocs(Context* ctx) : m_ctx(ctx) {}
+  ~DeleteAllDocs()
+  {
+    std::vector<Doc*> docs;
+
+    // Add all documents that were closed in the past, these docs
+    // are not part of any context and they are just temporarily in
+    // memory just in case the user wants to recover them.
+    for (Doc* doc : static_cast<UIContext*>(m_ctx)->getAndRemoveAllClosedDocs())
+      docs.push_back(doc);
+
+    // Add documents that are currently opened/in tabs/in the
+    // context.
+    for (Doc* doc : m_ctx->documents())
+      docs.push_back(doc);
+
+    for (Doc* doc : docs) {
+      // First we close the document. In this way we receive recent
+      // notifications related to the document as a app::Doc. If
+      // we delete the document directly, we destroy the app::Doc
+      // too early, and then doc::~Document() call
+      // DocsObserver::onRemoveDocument(). In this way, observers
+      // could think that they have a fully created app::Doc when
+      // in reality it's a doc::Document (in the middle of a
+      // destruction process).
+      //
+      // TODO: This problem is because we're extending doc::Document,
+      // in the future, we should remove app::Doc.
+      doc->close();
+      delete doc;
     }
-  };
+  }
+};
 
 } // anonymous namespace
 
-void App::run()
+void App::run(const bool runGuiManager)
 {
-#ifdef ENABLE_UI
   CloseMainWindow closeMainWindow(m_mainWindow);
-#endif
-  CloseAllDocs closeAllDocsAtExit(context());
+  DeleteAllDocs deleteAllDocsAtExit(context());
 
-#ifdef ENABLE_UI
   // Run the GUI
   if (isGui()) {
     auto manager = ui::Manager::getDefault();
 #if LAF_WINDOWS
     // How to interpret one finger on Windows tablets.
-    manager->display()->nativeWindow()
-      ->setInterpretOneFingerGestureAsMouseMovement(
-        preferences().experimental.oneFingerAsMouseMovement());
+    manager->display()->nativeWindow()->setInterpretOneFingerGestureAsMouseMovement(
+      preferences().experimental.oneFingerAsMouseMovement());
+  #if ENABLE_WEBP && LAF_SKIA
+    // In Windows we use a custom webp decoder for drag & drop operations.
+    os::set_decode_webp(util::decode_webp);
+  #endif
 #endif
 
 #if LAF_LINUX
     // Setup app icon for Linux window managers
     try {
-      os::Window* window = os::instance()->defaultWindow();
+      os::Window* window = os::System::instance()->defaultWindow();
       os::SurfaceList icons;
 
       for (const int size : { 32, 64, 128 }) {
         ResourceFinder rf;
         rf.includeDataDir(fmt::format("icons/ase{0}.png", size).c_str());
         if (rf.findFirst()) {
-          os::SurfaceRef surf = os::instance()->loadRgbaSurface(rf.filename().c_str());
+          os::SurfaceRef surf = os::System::instance()->loadRgbaSurface(rf.filename().c_str());
           if (surf) {
             surf->setImmutable();
             icons.push_back(surf);
@@ -507,22 +520,29 @@ void App::run()
 
     // Initialize Steam API
 #ifdef ENABLE_STEAM
-    steam::SteamAPI steam;
-    if (steam.initialized())
-      os::instance()->activateApp();
+    std::unique_ptr<steam::SteamAPI> steam;
+    if (m_inAppSteam) {
+      steam = std::make_unique<steam::SteamAPI>();
+      if (steam->isInitialized())
+        os::System::instance()->activateApp();
+    }
+    else {
+      // We tried to load the Steam SDK without calling
+      // SteamAPI_InitSafe() to check if we could run the program
+      // without "in game" indication but still capturing screenshots
+      // on Steam, and that wasn't the case.
+    }
 #endif
 
 #if defined(_DEBUG) || defined(ENABLE_DEVMODE)
     // On OS X, when we compile Aseprite on devmode, we're using it
     // outside an app bundle, so we must active the app explicitly.
-    if (isGui())
-      os::instance()->activateApp();
+    os::System::instance()->activateApp();
 #endif
 
 #ifdef ENABLE_UPDATER
     // Launch the thread to check for updates.
-    app::CheckUpdateThreadLauncher checkUpdate(
-      m_mainWindow->getCheckUpdateDelegate());
+    app::CheckUpdateThreadLauncher checkUpdate(m_mainWindow->getCheckUpdateDelegate());
     checkUpdate.launch();
 #endif
 
@@ -541,16 +561,17 @@ void App::run()
 #endif
 
     // Run the GUI main message loop
-    try {
-      manager->run();
-      set_app_state(AppState::kClosing);
-    }
-    catch (...) {
-      set_app_state(AppState::kClosingWithException);
-      throw;
+    if (runGuiManager) {
+      try {
+        manager->run();
+        set_app_state(AppState::kClosing);
+      }
+      catch (...) {
+        set_app_state(AppState::kClosingWithException);
+        throw;
+      }
     }
   }
-#endif  // ENABLE_UI
 
 #ifdef ENABLE_SCRIPTING
   // Start shell to execute scripts.
@@ -559,7 +580,7 @@ void App::run()
     Shell shell;
     shell.run(*m_engine);
   }
-#endif  // ENABLE_SCRIPTING
+#endif // ENABLE_SCRIPTING
 
   // ----------------------------------------------------------------------
 
@@ -568,19 +589,20 @@ void App::run()
   extensions().executeExitActions();
 #endif
 
-  close();
-}
-
-void App::close()
-{
-#ifdef ENABLE_UI
   if (isGui()) {
+    ExitGui();
+
     // Select no document
     static_cast<UIContext*>(context())->setActiveView(nullptr);
 
     // Delete backups (this is a normal shutdown, we are not handling
     // exceptions, and we are not in a destructor).
     m_modules->deleteDataRecovery();
+  }
+#if !LAF_SKIA
+  else if (m_showCliOnlyWarning) {
+    std::printf("You have a CLI-only Aseprite version\n"
+                "To enable GUI support build with LAF_BACKEND=skia\n");
   }
 #endif
 }
@@ -611,7 +633,6 @@ App::~App()
     // Fire App Exit signal.
     App::instance()->Exit();
 
-#ifdef ENABLE_UI
     // Finalize modules, configuration and core.
     Editor::destroyEditorSharedInternals();
 
@@ -619,8 +640,10 @@ App::~App()
 
     // Save brushes
     m_brushes.reset();
-#endif
 
+    // TODO it'd be nice to destroy every module automatically with
+    //      the default ~App() impl.
+    m_appMenus.reset();
     m_legacy.reset();
     m_modules.reset();
 
@@ -633,11 +656,9 @@ App::~App()
 
     m_coreModules.reset();
 
-#ifdef ENABLE_UI
     // Destroy the loaded gui.xml data.
     KeyboardShortcuts::destroyInstance();
     GuiXml::destroyInstance();
-#endif
   }
   catch (const std::exception& e) {
     LOG(ERROR, "APP: Error: %s\n", e.what());
@@ -663,10 +684,8 @@ bool App::isPortable()
 {
   static std::optional<bool> is_portable;
   if (!is_portable) {
-    is_portable =
-      base::is_file(base::join_path(
-                      base::get_file_path(base::get_app_path()),
-                      "aseprite.ini"));
+    is_portable = base::is_file(
+      base::join_path(base::get_file_path(base::get_app_path()), "aseprite.ini"));
   }
   return *is_portable;
 }
@@ -689,36 +708,29 @@ tools::ActiveToolManager* App::activeToolManager() const
 
 RecentFiles* App::recentFiles() const
 {
-#ifdef ENABLE_UI
-  ASSERT(m_modules != NULL);
+  ASSERT(m_modules != nullptr);
   return &m_modules->m_recent_files;
-#else
-  return nullptr;
-#endif
 }
 
 Workspace* App::workspace() const
 {
   if (m_mainWindow)
     return m_mainWindow->getWorkspace();
-  else
-    return nullptr;
+  return nullptr;
 }
 
 ContextBar* App::contextBar() const
 {
   if (m_mainWindow)
     return m_mainWindow->getContextBar();
-  else
-    return nullptr;
+  return nullptr;
 }
 
 Timeline* App::timeline() const
 {
   if (m_mainWindow)
     return m_mainWindow->getTimeline();
-  else
-    return nullptr;
+  return nullptr;
 }
 
 Preferences& App::preferences() const
@@ -736,7 +748,6 @@ crash::DataRecovery* App::dataRecovery() const
   return m_modules->recovery();
 }
 
-#ifdef ENABLE_UI
 void App::showNotification(INotificationDelegate* del)
 {
   if (m_mainWindow)
@@ -759,32 +770,61 @@ void App::showBackupNotification(bool state)
 
 void App::updateDisplayTitleBar()
 {
-  std::string defaultTitle = fmt::format("{} v{}", get_app_name(), get_app_version());
+  static std::string defaultTitle;
   std::string title;
+
+  if (defaultTitle.empty()) {
+    defaultTitle = fmt::format("{} v{}", get_app_name(), get_app_version());
+
+#if LAF_MACOS
+    // On macOS we remove the "-arm64" suffix for Apple Silicon as it
+    // will be the most common platform from now on.
+    if constexpr (base::Platform::arch == base::Platform::Arch::arm64) {
+      base::replace_string(defaultTitle, "-arm64", "");
+    }
+    else if constexpr (base::Platform::arch == base::Platform::Arch::x64) {
+      base::replace_string(defaultTitle, "-x64", "");
+      defaultTitle += " (x64)";
+    }
+#else
+    // On PC (Windows/Linux) we try to remove "-x64" suffix as it's
+    // the most common platform.
+    if constexpr (base::Platform::arch == base::Platform::Arch::x64) {
+      base::replace_string(defaultTitle, "-x64", "");
+    }
+    else if constexpr (base::Platform::arch == base::Platform::Arch::x86) {
+      base::replace_string(defaultTitle, "-x86", "");
+      defaultTitle += " (x86)";
+    }
+#endif
+  }
 
   DocView* docView = UIContext::instance()->activeView();
   if (docView) {
     // Prepend the document's filename.
     title += docView->document()->name();
+    if (docView->document()->isReadOnly()) {
+      title += " [Read-Only]";
+    }
     title += " - ";
   }
 
   title += defaultTitle;
-  os::instance()->defaultWindow()->setTitle(title);
+  os::System::instance()->defaultWindow()->setTitle(title);
 }
 
 InputChain& App::inputChain()
 {
   return m_modules->m_inputChain;
 }
-#endif
 
 // Updates palette and redraw the screen.
 void app_refresh_screen()
 {
-#ifdef ENABLE_UI
   Context* ctx = UIContext::instance();
-  ASSERT(ctx != NULL);
+  ASSERT(ctx != nullptr);
+  if (!ctx)
+    return;
 
   Site site = ctx->activeSite();
   if (Palette* pal = site.palette())
@@ -793,8 +833,8 @@ void app_refresh_screen()
     set_current_palette(nullptr, false);
 
   // Invalidate the whole screen.
-  ui::Manager::getDefault()->invalidate();
-#endif // ENABLE_UI
+  if (auto* man = ui::Manager::getDefault())
+    man->invalidate();
 }
 
 // TODO remove app_rebuild_documents_tabs() and replace it by
@@ -802,12 +842,10 @@ void app_refresh_screen()
 // document is modified).
 void app_rebuild_documents_tabs()
 {
-#ifdef ENABLE_UI
-  if (App::instance()->isGui()) {
-    App::instance()->workspace()->updateTabs();
-    App::instance()->updateDisplayTitleBar();
+  if (auto* app = App::instance(); app->isGui()) {
+    app->workspace()->updateTabs();
+    app->updateDisplayTitleBar();
   }
-#endif // ENABLE_UI
 }
 
 PixelFormat app_get_current_pixel_format()
@@ -818,40 +856,44 @@ PixelFormat app_get_current_pixel_format()
   Doc* doc = ctx->activeDocument();
   if (doc)
     return doc->sprite()->pixelFormat();
-  else
-    return IMAGE_RGB;
+  return IMAGE_RGB;
 }
 
 int app_get_color_to_clear_layer(Layer* layer)
 {
-  ASSERT(layer != NULL);
+  ASSERT(layer != nullptr);
 
   app::Color color;
 
   // The `Background' is erased with the `Background Color'
   if (layer->isBackground()) {
-#ifdef ENABLE_UI
-    if (ColorBar::instance())
-      color = ColorBar::instance()->getBgColor();
+    if (auto* colorBar = ColorBar::instance())
+      color = colorBar->getBgColor();
     else
-#endif
-      color = app::Color::fromRgb(0, 0, 0); // TODO get background color color from doc::Settings
+      color = Preferences::instance().colorBar.bgColor();
   }
-  else // All transparent layers are cleared with the mask color
+  else { // All transparent layers are cleared with the mask color
     color = app::Color::fromMask();
+  }
 
   return color_utils::color_for_layer(color, layer);
 }
 
 #ifdef ENABLE_DRM
-void app_configure_drm() {
+void app_configure_drm()
+{
   ResourceFinder userDirRf, dataDirRf;
   userDirRf.includeUserDir("");
   dataDirRf.includeDataDir("");
   std::map<std::string, std::string> config = {
-    {"data", dataDirRf.getFirstOrCreateDefault()}
+    { "data", dataDirRf.getFirstOrCreateDefault() }
   };
-  DRM_CONFIGURE(get_app_url(), get_app_name(), get_app_version(), userDirRf.getFirstOrCreateDefault(), updater::getUserAgent(), config);
+  DRM_CONFIGURE(get_app_url(),
+                get_app_name(),
+                get_app_version(),
+                userDirRf.getFirstOrCreateDefault(),
+                updater::getUserAgent(),
+                config);
 }
 #endif
 

@@ -1,4 +1,4 @@
--- Copyright (C) 2019-2022  Igara Studio S.A.
+-- Copyright (C) 2019-2023  Igara Studio S.A.
 -- Copyright (C) 2018  David Capello
 --
 -- This file is released under the terms of the MIT license.
@@ -21,8 +21,8 @@ do
   a:resize(6, 8)
   assert(a.width == 6)
   assert(a.height == 8)
-  assert(a.cels[1].image.width == 32 * 6 / 4) -- Check that the image was resized (not only the canvas)
-  assert(a.cels[1].image.height == 64 * 8 / 5)
+  assert(a.cels[1].image.width == math.floor(32 * 6 / 4)) -- Check that the image was resized (not only the canvas)
+  assert(a.cels[1].image.height == math.floor(64 * 8 / 5))
   a:crop{x=-1, y=-1, width=20, height=30}
   assert(a.width == 20)
   assert(a.height == 30)
@@ -205,4 +205,92 @@ do
   local b = Sprite(1, 1)
   assert(a == a)
   assert(a ~= b) -- Compares IDs, not sprite size
+end
+
+-- Tile management plugin
+
+do
+  local fn = "_test_sprite_tileManagementPlugin.aseprite"
+  local a = Sprite(1, 1)
+  assert(a.tileManagementPlugin == nil)
+  a.tileManagementPlugin = "test"
+  app.undo()
+  assert(a.tileManagementPlugin == nil)
+  app.redo()
+  assert(a.tileManagementPlugin == "test")
+  a:saveAs(fn)
+
+  b = app.open(fn)
+  assert(b.tileManagementPlugin == "test")
+  b.tileManagementPlugin = nil
+  b:saveAs(fn)
+
+  c = app.open(fn)
+  assert(c.tileManagementPlugin == nil)
+end
+
+-- Undo History
+
+function test_undo_history()
+  local sprite = Sprite(1, 1)
+
+  assert(sprite.undoHistory.undoSteps == 0)
+  assert(sprite.undoHistory.redoSteps == 0)
+
+  sprite:resize(10, 10)
+
+  assert(sprite.undoHistory.undoSteps == 1)
+  assert(sprite.undoHistory.redoSteps == 0)
+
+  sprite:resize(10, 15)
+
+  assert(sprite.undoHistory.undoSteps == 2)
+  assert(sprite.undoHistory.redoSteps == 0)
+
+  sprite:resize(10, 30)
+
+  assert(sprite.undoHistory.undoSteps == 3)
+  assert(sprite.undoHistory.redoSteps == 0)
+
+  app.undo()
+  assert(sprite.undoHistory.undoSteps == 2)
+  assert(sprite.undoHistory.redoSteps == 1)
+
+  app.undo()
+  assert(sprite.undoHistory.undoSteps == 1)
+  assert(sprite.undoHistory.redoSteps == 2)
+
+  app.redo()
+  assert(sprite.undoHistory.undoSteps == 2)
+  assert(sprite.undoHistory.redoSteps == 1)
+
+  app.undo()
+  app.undo()
+
+  assert(sprite.undoHistory.undoSteps == 0)
+  assert(sprite.undoHistory.redoSteps == 3)
+
+  sprite:resize(10, 30)
+
+  if (app.preferences.undo.allow_nonlinear_history) then
+    assert(sprite.undoHistory.undoSteps == 4)
+    assert(sprite.undoHistory.redoSteps == 0)
+  else
+    assert(sprite.undoHistory.undoSteps == 1)
+    assert(sprite.undoHistory.redoSteps == 0)
+  end
+end
+
+do
+  local prevSetting = app.preferences.undo.allow_nonlinear_history
+  app.preferences.undo.allow_nonlinear_history = true
+  test_undo_history()
+  app.preferences.undo.allow_nonlinear_history = prevSetting
+end
+
+do
+  local prevSetting = app.preferences.undo.allow_nonlinear_history
+  app.preferences.undo.allow_nonlinear_history = false
+  test_undo_history()
+  app.preferences.undo.allow_nonlinear_history = prevSetting
 end
